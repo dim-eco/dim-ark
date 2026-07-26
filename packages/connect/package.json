@@ -9,15 +9,14 @@
     "binaryName": "dim-ark-connect",
     "targets": [
       "x86_64-pc-windows-msvc",
-      "x86_64-apple-darwin",
-      "aarch64-apple-darwin",
       "x86_64-unknown-linux-gnu",
       "aarch64-unknown-linux-gnu"
     ]
   },
   "files": [
     "index.js",
-    "index.d.ts"
+    "index.d.ts",
+    "dim-ark-connect.win32-x64-msvc.node"
   ],
   "scripts": {
     "artifacts": "napi artifacts",
@@ -35,5 +34,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "optionalDependencies": {
+    "@dim-ark/connect-win32-x64-msvc": "0.1.0",
+    "@dim-ark/connect-linux-x64-gnu": "0.1.0",
+    "@dim-ark/connect-linux-arm64-gnu": "0.1.0"
+  }
 }
