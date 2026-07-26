@@ -1,0 +1,39 @@
+{
+  "name": "@dim-ark/connect",
+  "version": "0.1.0",
+  "author": "Maksimilian Vasilev <criticald@proton.me>",
+  "description": "Connector for dim-ark DBMS. Solve dynamic programming problems easily",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "dim-ark-connect",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu"
+    ]
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --test \"__test__/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.7.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "AGPL-3.0-only"
+}
