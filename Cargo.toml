@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dim-ark",
+    "crates/dim-lang",
+    "packages/connect",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[workspace.dependencies]
+dim-ark = { path = "crates/dim-ark" }
+dim-lang = { path = "crates/dim-lang" }
