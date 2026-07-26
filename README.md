@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="dimARK" width="160" />
+<img src="docs/assets/logo_light.png" alt="dimARK" width="160" />
 
 # dimARK
 
