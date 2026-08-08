@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use dim_lang::{eval_paths_between, parse, set_data, Env, Program};
-use frag::parse_paths_between;
+use frag::{parse_paths_between, BetweenArg};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use value_convert::json_to_value;
@@ -114,8 +114,8 @@ impl Bucket {
     pub fn prepare_frag(&self, src: String) -> Result<Frag> {
         let (begin, end) = parse_paths_between(&src).map_err(Error::from_reason)?;
         Ok(Frag {
-            begin_param: begin,
-            end_param: end,
+            begin,
+            end,
             session: Arc::clone(&self.session),
         })
     }
@@ -128,21 +128,33 @@ pub struct EnvSnapshot {
 
 #[napi]
 pub struct Frag {
-    begin_param: String,
-    end_param: String,
+    begin: BetweenArg,
+    end: BetweenArg,
     session: Arc<Mutex<Session>>,
+}
+
+fn resolve_arg(arg: &BetweenArg, bindings: &HashMap<String, i64>) -> Result<i64> {
+    match arg {
+        BetweenArg::Lit(v) => Ok(*v),
+        BetweenArg::Param(name) => bindings
+            .get(name)
+            .copied()
+            .ok_or_else(|| Error::from_reason(format!("missing binding `{name}`"))),
+    }
 }
 
 #[napi]
 impl Frag {
+    /// True when both endpoints are literals (no bindings needed).
+    #[napi(js_name = "isComplete")]
+    pub fn is_complete(&self) -> bool {
+        matches!(self.begin, BetweenArg::Lit(_)) && matches!(self.end, BetweenArg::Lit(_))
+    }
+
     #[napi]
     pub fn eval(&self, bindings: HashMap<String, i64>) -> Result<i64> {
-        let begin = *bindings.get(&self.begin_param).ok_or_else(|| {
-            Error::from_reason(format!("missing binding `{}`", self.begin_param))
-        })?;
-        let end = *bindings.get(&self.end_param).ok_or_else(|| {
-            Error::from_reason(format!("missing binding `{}`", self.end_param))
-        })?;
+        let begin = resolve_arg(&self.begin, &bindings)?;
+        let end = resolve_arg(&self.end, &bindings)?;
         let session = self
             .session
             .lock()

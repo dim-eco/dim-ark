@@ -65,5 +65,11 @@ describe('paths.between', () => {
     )
     const frag1Res = await frag1.eval({ begin: 1, end: 9 })
     assert.equal(frag1Res, 3600)
+
+    const fragLit = await bucket.prepareFrag(
+      'paths.between(paths.node(1), paths.node(9))',
+    )
+    assert.equal(fragLit.isComplete(), true)
+    assert.equal(await fragLit.eval({}), 3600)
   })
 })

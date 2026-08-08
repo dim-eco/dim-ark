@@ -15,6 +15,12 @@ yarn-error.log*
 packages/connect/index.js
 packages/connect/index.d.ts
 packages/connect/browser.js
+packages/connect/dim-ark-connect.wasi-browser.js
+packages/connect/dim-ark-connect.wasi.cjs
+packages/connect/dim-ark-connect.wasi.d.cts
+packages/connect/wasi-worker.mjs
+packages/connect/wasi-worker-browser.mjs
+packages/connect/npm/
 
 # OS / IDE
 .DS_Store
@@ -24,5 +30,3 @@ Thumbs.db
 *.swp
 *.swo
 
-# Local tools
-/dimviz/

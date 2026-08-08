@@ -1,6 +1,4 @@
-'use strict'
-
-const native = require('../index.js')
+import * as native from '../dim-ark-connect.wasi-browser.js'
 
 function toPlain(value) {
   if (value instanceof Map) {
@@ -62,11 +60,20 @@ function wrapBucket(bucket) {
   }
 }
 
-module.exports = {
-  version: native.version,
-  test_lcs: native.test_lcs,
-  test_subset_sum: native.test_subset_sum,
-  bucket: (name) => wrapBucket(native.bucket(name)),
-  Bucket: native.Bucket,
-  Frag: native.Frag,
+export const version = native.version
+export const test_lcs = native.test_lcs
+export const test_subset_sum = native.test_subset_sum
+export const Bucket = native.Bucket
+export const Frag = native.Frag
+export function bucket(name) {
+  return wrapBucket(native.bucket(name))
+}
+
+export default {
+  version,
+  test_lcs,
+  test_subset_sum,
+  bucket,
+  Bucket,
+  Frag,
 }
