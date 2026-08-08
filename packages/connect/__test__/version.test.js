@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const { version: packageVersion } = require('../package.json')
-const { version } = require('../index.js')
+const { version } = require('../js/api.js')
 
 describe('version', () => {
   it('returns a non-empty string', () => {

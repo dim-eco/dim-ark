@@ -1,6 +1,16 @@
 #![deny(clippy::all)]
 
+mod frag;
+mod value_convert;
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use dim_lang::{eval_paths_between, parse, set_data, Env, Program};
+use frag::parse_paths_between;
+use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use value_convert::json_to_value;
 
 #[napi]
 pub fn version() -> String {
@@ -15,4 +25,133 @@ pub fn test_subset_sum(a: Vec<i64>, t: i64) -> bool {
 #[napi(js_name = "test_lcs")]
 pub fn test_lcs(s1: String, s2: String) -> i64 {
     dim_ark::test_lcs(s1, s2)
+}
+
+struct Session {
+    program: Option<Program>,
+    env: Env,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            program: None,
+            env: Env::new(),
+        }
+    }
+}
+
+#[napi]
+pub struct Bucket {
+    #[allow(dead_code)]
+    name: String,
+    session: Arc<Mutex<Session>>,
+}
+
+#[napi(object)]
+pub struct InitializeOptions {
+    pub model: String,
+    #[napi(js_name = "externalTypes")]
+    pub external_types: Option<HashMap<String, String>>,
+}
+
+#[napi]
+pub fn bucket(name: String) -> Bucket {
+    Bucket {
+        name,
+        session: Arc::new(Mutex::new(Session::default())),
+    }
+}
+
+#[napi]
+impl Bucket {
+    #[napi]
+    pub fn initialize(&self, opts: InitializeOptions) -> Result<()> {
+        let _ = opts.external_types;
+        let program = parse(&opts.model).map_err(|e| Error::from_reason(e.to_string()))?;
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        session.program = Some(program);
+        session.env = Env::new();
+        Ok(())
+    }
+
+    #[napi(js_name = "setData")]
+    pub fn set_data(&self, name: String, value: serde_json::Value) -> Result<()> {
+        let converted = json_to_value(value)?;
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        set_data(&mut session.env, &name, converted);
+        Ok(())
+    }
+
+    #[napi(js_name = "snapshotEnv")]
+    pub fn snapshot_env(&self) -> Result<EnvSnapshot> {
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        Ok(EnvSnapshot {
+            env: session.env.clone(),
+        })
+    }
+
+    #[napi(js_name = "restoreEnv")]
+    pub fn restore_env(&self, snapshot: &EnvSnapshot) -> Result<()> {
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        session.env = snapshot.env.clone();
+        Ok(())
+    }
+
+    #[napi(js_name = "prepareFrag")]
+    pub fn prepare_frag(&self, src: String) -> Result<Frag> {
+        let (begin, end) = parse_paths_between(&src).map_err(Error::from_reason)?;
+        Ok(Frag {
+            begin_param: begin,
+            end_param: end,
+            session: Arc::clone(&self.session),
+        })
+    }
+}
+
+#[napi]
+pub struct EnvSnapshot {
+    env: Env,
+}
+
+#[napi]
+pub struct Frag {
+    begin_param: String,
+    end_param: String,
+    session: Arc<Mutex<Session>>,
+}
+
+#[napi]
+impl Frag {
+    #[napi]
+    pub fn eval(&self, bindings: HashMap<String, i64>) -> Result<i64> {
+        let begin = *bindings.get(&self.begin_param).ok_or_else(|| {
+            Error::from_reason(format!("missing binding `{}`", self.begin_param))
+        })?;
+        let end = *bindings.get(&self.end_param).ok_or_else(|| {
+            Error::from_reason(format!("missing binding `{}`", self.end_param))
+        })?;
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        let program = session
+            .program
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("bucket not initialized"))?;
+        eval_paths_between(program, &session.env, begin, end)
+            .map_err(|e| Error::from_reason(e.to_string()))
+    }
 }

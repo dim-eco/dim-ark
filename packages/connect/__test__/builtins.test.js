@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
-const { test_subset_sum, test_lcs } = require('../index.js')
+const { test_subset_sum, test_lcs } = require('../js/api.js')
 
 describe('test_subset_sum', () => {
   it('finds a subset that sums to the target', () => {

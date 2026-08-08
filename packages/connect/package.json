@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "author": "Maksimilian Vasilev <criticald@proton.me>",
   "description": "Connector for dim-ark DBMS. Solve dynamic programming problems easily",
-  "main": "index.js",
-  "types": "index.d.ts",
+  "main": "js/api.js",
+  "types": "js/api.d.ts",
   "napi": {
     "binaryName": "dim-ark-connect",
     "targets": [
@@ -16,6 +16,8 @@
   "files": [
     "index.js",
     "index.d.ts",
+    "js/api.js",
+    "js/api.d.ts",
     "dim-ark-connect.win32-x64-msvc.node"
   ],
   "scripts": {
