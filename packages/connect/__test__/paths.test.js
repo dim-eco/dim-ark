@@ -26,6 +26,64 @@ const PATHS_MODEL = `
 		}
 	`
 
+const BACKPACK_MODEL = `
+extern type Id
+extern type Weight
+extern type Value
+
+data input: {first_id: Id, last_id: Id, capacity: Weight, items: {[Id]: {weight: Weight, value: Value}}}
+
+backpack = dp {
+    node (name = 'main') {
+        key: {weight: Weight, id: Step}
+        payload = 0
+        next = || {
+            if key.weight + input.items[key.id.current].weight <= input.capacity {
+                yield node.take({
+                    weight: key.weight + input.items[key.id.current].weight,
+                    id: key.id
+                })
+            }
+            if key.id.current == input.last_id {
+                yield node.result()
+            } else {
+                yield node.main({weight: key.weight, id: key.id.incremented()})
+            }
+        }
+        combine = |a, b| max(a, b)
+        extend = |a, b| a + b
+        unit = 0
+        zero = 0
+    }
+
+    node (name = 'take') {
+        key: {weight: Weight, id: Step}
+        payload = input.items[key.id.current].value
+        next = || {
+            if key.id.current == input.last_id {
+                yield node.result()
+            } else {
+                yield node.main({weight: key.weight, id: key.id.incremented()})
+            }
+        }
+        combine = |a, b| max(a, b)
+        extend = |a, b| a + b
+        unit = 0
+        zero = 0
+    }
+
+    node (name = 'result') {
+        key: {}
+        payload = 0
+        next = || {}
+        combine = |a, b| max(a, b)
+        extend = |a, b| a + b
+        unit = 0
+        zero = 0
+    }
+}
+`
+
 describe('paths.between', () => {
   it('computes between(1, 9) === 3600', async () => {
     const bucket = dimArk.bucket('paths_test')
@@ -71,5 +129,92 @@ describe('paths.between', () => {
     )
     assert.equal(fragLit.isComplete(), true)
     assert.equal(await fragLit.eval({}), 3600)
+
+    const debug = await fragLit.evalDebug({})
+    assert.equal(debug.result, 3600)
+    const node9 = debug.nodes.find((n) => n.id === '9')
+    assert.ok(node9)
+    assert.equal(node9.dp, 3600)
+    assert.equal(node9.value, 9)
+    assert.equal(node9.sum, 400)
+    assert.ok(debug.edges.length > 0)
+  })
+
+  it('evalDebug reflects custom extend (mul * 2)', async () => {
+    const model = PATHS_MODEL.replace(
+      'extend  = |a, b| a * b',
+      'extend  = |a, b| a * b * 2',
+    )
+    const bucket = dimArk.bucket('paths_mul2')
+    await bucket.initialize({
+      model,
+      externalTypes: { Id: 'u52', Value: 'u52' },
+    })
+    await bucket.transaction(async (tx) => {
+      await tx.setData('input', {
+        values: Object.fromEntries(
+          Array.from({ length: 9 }, (_, i) => [i + 1, i + 1]),
+        ),
+        edges: {
+          1: [2, 3],
+          2: [4, 5],
+          3: [5, 6],
+          4: [7],
+          5: [7, 9],
+          6: [8],
+          7: [9],
+          8: [9],
+          9: [],
+        },
+      })
+    })
+
+    const frag = await bucket.prepareFrag(
+      'paths.between(paths.node(1), paths.node(9))',
+    )
+    const debug = await frag.evalDebug({})
+    assert.equal(debug.result, 111600)
+    const node9 = debug.nodes.find((n) => n.id === '9')
+    assert.ok(node9)
+    assert.equal(node9.dp, 111600)
+  })
+})
+
+describe('backpack.between', () => {
+  it('computes ks01 capacity 14 === 7', async () => {
+    const bucket = dimArk.bucket('ks01_test')
+    await bucket.initialize({
+      model: BACKPACK_MODEL,
+      externalTypes: { Id: 'u52', Weight: 'u52', Value: 'u52' },
+    })
+    await bucket.transaction(async (tx) => {
+      await tx.setData('input', {
+        capacity: 14,
+        first_id: 1,
+        last_id: 4,
+        items: {
+          1: { value: 3, weight: 5 },
+          2: { value: 5, weight: 10 },
+          3: { value: 4, weight: 6 },
+          4: { value: 2, weight: 5 },
+        },
+      })
+    })
+
+    const frag = await bucket.prepareFrag(
+      'backpack.between(node.main({weight: 0, id: Step()}), node.result())',
+    )
+    assert.equal(frag.isComplete(), true)
+    assert.equal(await frag.eval({}), 7)
+
+    const lit = await bucket.prepareFrag(
+      "backpack.between(backpack.node('main', {weight: 0, id: Step()}), backpack.node('result', {}))",
+    )
+    assert.equal(lit.isComplete(), true)
+    const debug = await lit.evalDebug({})
+    assert.equal(debug.result, 7)
+    assert.ok(debug.nodes.length > 0)
+    assert.ok(debug.nodes.some((n) => n.id === 'result:{}'))
+    assert.ok(debug.edges.length > 0)
   })
 })

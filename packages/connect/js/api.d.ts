@@ -10,10 +10,31 @@ export interface InitializeOptions {
   externalTypes?: Record<string, string>
 }
 
+export interface BetweenNodeDebug {
+  id: string
+  value: number
+  sum: number
+  dp: number
+}
+
+export interface BetweenEdgeDebug {
+  from: string
+  to: string
+}
+
+/** Scalar between result plus filtered subgraph DP values from the engine. */
+export interface BetweenDebug {
+  result: number
+  nodes: BetweenNodeDebug[]
+  edges: BetweenEdgeDebug[]
+}
+
 export interface FragApi {
-  /** True when both endpoints are literal integers (no bindings needed). */
+  /** True when both endpoints are fully literal (no bindings needed). */
   isComplete(): boolean
   eval(bindings?: Record<string, number>): Promise<number>
+  /** Evaluate and return per-node DP debug info for visualization. */
+  evalDebug(bindings?: Record<string, number>): Promise<BetweenDebug>
 }
 
 export interface TxApi {

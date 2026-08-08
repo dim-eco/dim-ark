@@ -6,8 +6,12 @@ mod value_convert;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use dim_lang::{eval_paths_between, parse, set_data, Env, Program};
-use frag::{parse_paths_between, BetweenArg};
+use dim_lang::{
+    eval_dp_between, eval_dp_between_debug, parse, set_data, Env, Program,
+};
+use frag::{
+    endpoint_is_complete, parse_between_frag, resolve_endpoint, BetweenFrag,
+};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use value_convert::json_to_value;
@@ -53,6 +57,28 @@ pub struct InitializeOptions {
     pub model: String,
     #[napi(js_name = "externalTypes")]
     pub external_types: Option<HashMap<String, String>>,
+}
+
+#[napi(object)]
+pub struct BetweenNodeDebug {
+    pub id: String,
+    pub value: i64,
+    pub sum: i64,
+    pub dp: i64,
+}
+
+#[napi(object)]
+pub struct BetweenEdgeDebug {
+    pub from: String,
+    pub to: String,
+}
+
+/// Debug payload from `*.between`: scalar result plus subgraph DP values.
+#[napi(object)]
+pub struct BetweenDebug {
+    pub result: i64,
+    pub nodes: Vec<BetweenNodeDebug>,
+    pub edges: Vec<BetweenEdgeDebug>,
 }
 
 #[napi]
@@ -112,10 +138,9 @@ impl Bucket {
 
     #[napi(js_name = "prepareFrag")]
     pub fn prepare_frag(&self, src: String) -> Result<Frag> {
-        let (begin, end) = parse_paths_between(&src).map_err(Error::from_reason)?;
+        let between = parse_between_frag(&src).map_err(Error::from_reason)?;
         Ok(Frag {
-            begin,
-            end,
+            between,
             session: Arc::clone(&self.session),
         })
     }
@@ -128,42 +153,71 @@ pub struct EnvSnapshot {
 
 #[napi]
 pub struct Frag {
-    begin: BetweenArg,
-    end: BetweenArg,
+    between: BetweenFrag,
     session: Arc<Mutex<Session>>,
-}
-
-fn resolve_arg(arg: &BetweenArg, bindings: &HashMap<String, i64>) -> Result<i64> {
-    match arg {
-        BetweenArg::Lit(v) => Ok(*v),
-        BetweenArg::Param(name) => bindings
-            .get(name)
-            .copied()
-            .ok_or_else(|| Error::from_reason(format!("missing binding `{name}`"))),
-    }
 }
 
 #[napi]
 impl Frag {
-    /// True when both endpoints are literals (no bindings needed).
+    /// True when both endpoints are fully literal (no bindings needed).
     #[napi(js_name = "isComplete")]
     pub fn is_complete(&self) -> bool {
-        matches!(self.begin, BetweenArg::Lit(_)) && matches!(self.end, BetweenArg::Lit(_))
+        endpoint_is_complete(&self.between.begin) && endpoint_is_complete(&self.between.end)
     }
 
     #[napi]
     pub fn eval(&self, bindings: HashMap<String, i64>) -> Result<i64> {
-        let begin = resolve_arg(&self.begin, &bindings)?;
-        let end = resolve_arg(&self.end, &bindings)?;
         let session = self
             .session
             .lock()
             .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        let begin = resolve_endpoint(&self.between.begin, &bindings, &session.env)
+            .map_err(Error::from_reason)?;
+        let end = resolve_endpoint(&self.between.end, &bindings, &session.env)
+            .map_err(Error::from_reason)?;
         let program = session
             .program
             .as_ref()
             .ok_or_else(|| Error::from_reason("bucket not initialized"))?;
-        eval_paths_between(program, &session.env, begin, end)
+        eval_dp_between(program, &session.env, &self.between.dp_name, begin, end)
             .map_err(|e| Error::from_reason(e.to_string()))
+    }
+
+    /// Evaluate `between` and return the scalar plus per-node DP debug info.
+    #[napi(js_name = "evalDebug")]
+    pub fn eval_debug(&self, bindings: HashMap<String, i64>) -> Result<BetweenDebug> {
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| Error::from_reason("bucket session poisoned"))?;
+        let begin = resolve_endpoint(&self.between.begin, &bindings, &session.env)
+            .map_err(Error::from_reason)?;
+        let end = resolve_endpoint(&self.between.end, &bindings, &session.env)
+            .map_err(Error::from_reason)?;
+        let program = session
+            .program
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("bucket not initialized"))?;
+        let traced =
+            eval_dp_between_debug(program, &session.env, &self.between.dp_name, begin, end)
+                .map_err(|e| Error::from_reason(e.to_string()))?;
+        Ok(BetweenDebug {
+            result: traced.result,
+            nodes: traced
+                .nodes
+                .into_iter()
+                .map(|n| BetweenNodeDebug {
+                    id: n.id,
+                    value: n.value,
+                    sum: n.sum,
+                    dp: n.dp,
+                })
+                .collect(),
+            edges: traced
+                .edges
+                .into_iter()
+                .map(|(from, to)| BetweenEdgeDebug { from, to })
+                .collect(),
+        })
     }
 }

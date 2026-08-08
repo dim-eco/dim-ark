@@ -29,7 +29,18 @@ function wrapFrag(frag) {
       return typeof frag.isComplete === 'function' ? frag.isComplete() : false
     },
     eval(bindings) {
-      return Promise.resolve(frag.eval(bindings))
+      return Promise.resolve(frag.eval(bindings ?? {}))
+    },
+    evalDebug(bindings) {
+      const fn = frag.evalDebug
+      if (typeof fn !== 'function') {
+        return Promise.reject(
+          new Error(
+            'Frag.evalDebug missing — rebuild @dim-ark/connect (`npm run build`)',
+          ),
+        )
+      }
+      return Promise.resolve(fn.call(frag, bindings ?? {}))
     },
   }
 }

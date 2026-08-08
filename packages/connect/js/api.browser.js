@@ -27,7 +27,18 @@ function wrapFrag(frag) {
       return typeof frag.isComplete === 'function' ? frag.isComplete() : false
     },
     eval(bindings) {
-      return Promise.resolve(frag.eval(bindings))
+      return Promise.resolve(frag.eval(bindings ?? {}))
+    },
+    evalDebug(bindings) {
+      const fn = frag.evalDebug
+      if (typeof fn !== 'function') {
+        return Promise.reject(
+          new Error(
+            'Frag.evalDebug missing from WASM — run `npm run build:wasm` in packages/connect and hard-refresh dimviz',
+          ),
+        )
+      }
+      return Promise.resolve(fn.call(frag, bindings ?? {}))
     },
   }
 }
