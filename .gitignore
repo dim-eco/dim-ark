@@ -32,4 +32,5 @@ Thumbs.db
 
 # Local tools
 /dimviz/
+.cursor/
 
