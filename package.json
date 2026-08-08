@@ -7,6 +7,7 @@
   "scripts": {
     "build": "npm run build -w @dim-ark/connect",
     "build:debug": "npm run build:debug -w @dim-ark/connect",
+    "build:wasm": "npm run build:wasm -w @dim-ark/connect",
     "test": "npm run test -w @dim-ark/connect"
   },
   "engines": {
