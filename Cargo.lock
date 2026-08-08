@@ -53,6 +53,7 @@ dependencies = [
 name = "dim-lang"
 version = "0.1.0"
 dependencies = [
+ "dim-ark",
  "logos",
  "peg",
 ]

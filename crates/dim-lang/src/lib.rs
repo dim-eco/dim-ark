@@ -1,14 +1,16 @@
 mod ast;
 mod error;
+mod interp;
 mod parse;
 mod token;
 mod vm;
 
 pub use ast::{DpBlock, Expr, Item, NodeDef, Program, Stmt, Type};
 pub use error::Error;
+pub use interp::eval_paths_between;
 pub use parse::{lex, parse, parse_expr};
 pub use token::{Spanned, Token};
-pub use vm::eval;
+pub use vm::{eval, set_data, Env, Value};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -20,7 +22,9 @@ pub fn eval_src(src: &str) -> Result<String, Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::eval_src;
+    use std::collections::BTreeMap;
+
+    use super::{eval_paths_between, eval_src, set_data, Env, Value};
     use crate::ast::{c, field, index, lambda, lit, name, named_ty, DpBlock, Expr, Item, NodeDef, Program, Stmt, Type};
     use crate::parse;
 
@@ -169,5 +173,65 @@ mod tests {
         };
 
         assert_eq!(parse(src).unwrap(), expected);
+    }
+
+    #[test]
+    fn paths_between_1_and_9() {
+        let src = r#"
+	  extern type Id
+	  extern type Value
+	  
+	  data input: {values: {[Id]: Value}, edges: {[Id]: [Id]}}
+	  
+		paths = dp {
+			node {
+				key: Id
+				payload = input.values[key]
+				next = || {
+					for to in input.edges[key] {
+						yield node(to)	
+					}	
+				}
+				
+				// operations indeed are in the node definition
+				
+				combine = |a, b| a + b
+				extend  = |a, b| a * b
+				unit    = 1 
+				zero = 0
+			}
+		}
+	"#;
+
+        let program = parse(src).unwrap();
+        let mut env = Env::new();
+
+        let values: BTreeMap<i64, Value> = (1..=9).map(|i| (i, Value::Int(i))).collect();
+        let edges: BTreeMap<i64, Value> = [
+            (1, vec![2, 3]),
+            (2, vec![4, 5]),
+            (3, vec![5, 6]),
+            (4, vec![7]),
+            (5, vec![7, 9]),
+            (6, vec![8]),
+            (7, vec![9]),
+            (8, vec![9]),
+            (9, vec![]),
+        ]
+        .into_iter()
+        .map(|(k, tos)| {
+            (
+                k,
+                Value::List(tos.into_iter().map(Value::Int).collect()),
+            )
+        })
+        .collect();
+
+        let mut input_fields = BTreeMap::new();
+        input_fields.insert("values".into(), Value::Map(values));
+        input_fields.insert("edges".into(), Value::Map(edges));
+        set_data(&mut env, "input", Value::Record(input_fields));
+
+        assert_eq!(eval_paths_between(&program, &env, 1, 9).unwrap(), 3600);
     }
 }
