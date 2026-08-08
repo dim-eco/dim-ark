@@ -9,6 +9,9 @@ pub fn eval(expr: &Expr) -> Result<String, Error> {
             let values = values?;
             dispatch_intrinsic(name, &values)
         }
+        other => Err(Error::Eval(format!(
+            "expression not supported by eval: {other:?}"
+        ))),
     }
 }
 

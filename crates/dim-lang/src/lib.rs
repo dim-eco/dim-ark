@@ -4,9 +4,9 @@ mod parse;
 mod token;
 mod vm;
 
-pub use ast::Expr;
+pub use ast::{DpBlock, Expr, Item, NodeDef, Program, Stmt, Type};
 pub use error::Error;
-pub use parse::{lex, parse};
+pub use parse::{lex, parse, parse_expr};
 pub use token::{Spanned, Token};
 pub use vm::eval;
 
@@ -15,12 +15,14 @@ pub fn version() -> &'static str {
 }
 
 pub fn eval_src(src: &str) -> Result<String, Error> {
-    eval(&parse(src)?)
+    eval(&parse_expr(src)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::eval_src;
+    use crate::ast::{c, field, index, lambda, lit, name, named_ty, DpBlock, Expr, Item, NodeDef, Program, Stmt, Type};
+    use crate::parse;
 
     fn expect_ok(src: &str, expected: &str) {
         assert_eq!(eval_src(src).unwrap(), expected);
@@ -74,5 +76,98 @@ mod tests {
     #[test]
     fn whitespace() {
         expect_ok(" 1 + 2 * 3 ", "7");
+    }
+
+    #[test]
+    fn paths_new_model_ast() {
+        let src = r#"
+	  extern type Id
+	  extern type Value
+	  
+	  data input: {values: {[Id]: Value}, edges: {[Id]: [Id]}}
+	  
+		paths = dp {
+			node {
+				key: Id
+				payload = input.values[key]
+				next = || {
+					for to in input.edges[key] {
+						yield node(to)	
+					}	
+				}
+				
+				// operations indeed are in the node definition
+				
+				combine = |a, b| a + b
+				extend  = |a, b| a * b
+				unit    = 1 
+				zero = 0
+			}
+		}
+	"#;
+
+        let expected = Program {
+            items: vec![
+                Item::ExternType {
+                    name: "Id".into(),
+                },
+                Item::ExternType {
+                    name: "Value".into(),
+                },
+                Item::Data {
+                    name: "input".into(),
+                    ty: Type::Record {
+                        fields: vec![
+                            (
+                                "values".into(),
+                                Type::Map {
+                                    key: Box::new(named_ty("Id")),
+                                    value: Box::new(named_ty("Value")),
+                                },
+                            ),
+                            (
+                                "edges".into(),
+                                Type::Map {
+                                    key: Box::new(named_ty("Id")),
+                                    value: Box::new(Type::List(Box::new(named_ty("Id")))),
+                                },
+                            ),
+                        ],
+                    },
+                },
+                Item::Assign {
+                    name: "paths".into(),
+                    value: Expr::Dp(DpBlock {
+                        nodes: vec![NodeDef {
+                            key: Some(named_ty("Id")),
+                            payload: Some(index(
+                                field(name("input"), "values"),
+                                name("key"),
+                            )),
+                            next: Some(lambda(
+                                &[],
+                                Expr::Block(vec![Stmt::For {
+                                    var: "to".into(),
+                                    iter: index(field(name("input"), "edges"), name("key")),
+                                    body: vec![Stmt::Yield(c("node", vec![name("to")]))],
+                                }]),
+                            )),
+                            add: Some(lambda(
+                                &["a", "b"],
+                                c("__intrinsic_add", vec![name("a"), name("b")]),
+                            )),
+                            mul: Some(lambda(
+                                &["a", "b"],
+                                c("__intrinsic_mul", vec![name("a"), name("b")]),
+                            )),
+                            unit: Some(lit("1")),
+                            zero: Some(lit("0")),
+                        }],
+                    }),
+                },
+            ],
+        };
+
+        assert_eq!(parse(src).unwrap(), expected);
     }
 }
