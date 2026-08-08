@@ -7,6 +7,9 @@ pub enum Token {
     #[regex(r"[0-9]+")]
     Int,
 
+    #[regex(r"'([^'\\]|\\.)*'")]
+    String,
+
     #[token("extern")]
     Extern,
 
@@ -28,8 +31,17 @@ pub enum Token {
     #[token("in")]
     In,
 
+    #[token("if")]
+    If,
+
+    #[token("else")]
+    Else,
+
     #[token("yield")]
     Yield,
+
+    #[token("inf")]
+    Inf,
 
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*")]
     Ident,
@@ -48,6 +60,24 @@ pub enum Token {
 
     #[token("%")]
     Percent,
+
+    #[token("<=")]
+    Le,
+
+    #[token(">=")]
+    Ge,
+
+    #[token("==")]
+    EqEq,
+
+    #[token("!=")]
+    Ne,
+
+    #[token("<")]
+    Lt,
+
+    #[token(">")]
+    Gt,
 
     #[token("(")]
     LParen,

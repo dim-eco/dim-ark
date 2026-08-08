@@ -75,8 +75,36 @@ fn apply_node_field(node: &mut NodeDef, name: &str, value: Expr) -> Result<(), &
     }
 }
 
+fn unescape_string(raw: &str) -> Result<String, &'static str> {
+    // raw includes quotes: '...'
+    if raw.len() < 2 {
+        return Err("invalid string literal");
+    }
+    let inner = &raw[1..raw.len() - 1];
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('\\') => out.push('\\'),
+                Some('\'') => out.push('\''),
+                Some(other) => {
+                    out.push(other);
+                }
+                None => return Err("invalid string escape"),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Ok(out)
+}
+
 enum Postfix {
     Field(String),
+    Method { name: String, args: Vec<Expr> },
     Index(Expr),
 }
 
@@ -137,21 +165,21 @@ peg::parser! {
 
         rule record_ty(src: &str) -> Type =
             [Spanned { token: Token::LBrace, .. }]
-            fields:record_fields(src)
+            fields:record_ty_fields(src)
             [Spanned { token: Token::RBrace, .. }] {
                 Type::Record { fields }
             }
 
-        rule record_fields(src: &str) -> Vec<(String, Type)> =
-            first:record_field(src)
-            rest:([Spanned { token: Token::Comma, .. }] f:record_field(src) { f })* {
+        rule record_ty_fields(src: &str) -> Vec<(String, Type)> =
+            first:record_ty_field(src)
+            rest:([Spanned { token: Token::Comma, .. }] f:record_ty_field(src) { f })* {
                 let mut fields = vec![first];
                 fields.extend(rest);
                 fields
             }
             / { Vec::new() }
 
-        rule record_field(src: &str) -> (String, Type) =
+        rule record_ty_field(src: &str) -> (String, Type) =
             name:ident(src)
             [Spanned { token: Token::Colon, .. }]
             ty:ty(src) {
@@ -159,6 +187,25 @@ peg::parser! {
             }
 
         pub rule expr(src: &str) -> Expr = precedence! {
+            x:(@) [Spanned { token: Token::EqEq, .. }] y:@ {
+                c("__intrinsic_eq", vec![x, y])
+            }
+            x:(@) [Spanned { token: Token::Ne, .. }] y:@ {
+                c("__intrinsic_ne", vec![x, y])
+            }
+            x:(@) [Spanned { token: Token::Le, .. }] y:@ {
+                c("__intrinsic_le", vec![x, y])
+            }
+            x:(@) [Spanned { token: Token::Ge, .. }] y:@ {
+                c("__intrinsic_ge", vec![x, y])
+            }
+            x:(@) [Spanned { token: Token::Lt, .. }] y:@ {
+                c("__intrinsic_lt", vec![x, y])
+            }
+            x:(@) [Spanned { token: Token::Gt, .. }] y:@ {
+                c("__intrinsic_gt", vec![x, y])
+            }
+            --
             x:(@) [Spanned { token: Token::Plus, .. }] y:@ {
                 c("__intrinsic_add", vec![x, y])
             }
@@ -186,6 +233,11 @@ peg::parser! {
                         base: Box::new(base),
                         field,
                     },
+                    Postfix::Method { name, args } => Expr::MethodCall {
+                        base: Box::new(base),
+                        method: name,
+                        args,
+                    },
                     Postfix::Index(index) => Expr::Index {
                         base: Box::new(base),
                         index: Box::new(index),
@@ -194,7 +246,13 @@ peg::parser! {
             }
 
         rule postfix_op(src: &str) -> Postfix =
-            [Spanned { token: Token::Dot, .. }] name:ident(src) {
+            [Spanned { token: Token::Dot, .. }] name:ident(src)
+            [Spanned { token: Token::LParen, .. }]
+            args:arg_list(src)
+            [Spanned { token: Token::RParen, .. }] {
+                Postfix::Method { name, args }
+            }
+            / [Spanned { token: Token::Dot, .. }] name:ident(src) {
                 Postfix::Field(name)
             }
             / [Spanned { token: Token::LBracket, .. }]
@@ -204,17 +262,43 @@ peg::parser! {
             }
 
         rule atom(src: &str) -> Expr =
-            [Spanned { token: Token::Int, start, end }] {
+            [Spanned { token: Token::Minus, .. }]
+            [Spanned { token: Token::Inf, .. }] {
+                Expr::NegInf
+            }
+            / [Spanned { token: Token::Int, start, end }] {
                 Expr::Lit(src[start..end].to_owned())
+            }
+            / [Spanned { token: Token::String, start, end }] {?
+                unescape_string(&src[start..end]).map(Expr::Str)
             }
             / lambda(src)
             / dp_expr(src)
+            / record_lit(src)
             / block(src)
             / call_or_name(src)
             / [Spanned { token: Token::LParen, .. }]
               e:expr(src)
               [Spanned { token: Token::RParen, .. }] {
                 e
+            }
+
+        /// Non-empty record literal `{ field: expr, ... }`. Empty `{}` stays a block.
+        rule record_lit(src: &str) -> Expr =
+            [Spanned { token: Token::LBrace, .. }]
+            first:record_lit_field(src)
+            rest:([Spanned { token: Token::Comma, .. }] f:record_lit_field(src) { f })*
+            [Spanned { token: Token::RBrace, .. }] {
+                let mut fields = vec![first];
+                fields.extend(rest);
+                Expr::RecordLit(fields)
+            }
+
+        rule record_lit_field(src: &str) -> (String, Expr) =
+            name:ident(src)
+            [Spanned { token: Token::Colon, .. }]
+            value:expr(src) {
+                (name, value)
             }
 
         rule call_or_name(src: &str) -> Expr =
@@ -278,12 +362,28 @@ peg::parser! {
             [Spanned { token: Token::RBrace, .. }] {
                 Stmt::For { var, iter, body }
             }
+            / [Spanned { token: Token::If, .. }]
+              cond:expr(src)
+              [Spanned { token: Token::LBrace, .. }]
+              body:stmt(src)*
+              [Spanned { token: Token::RBrace, .. }]
+              else_body:else_body(src)? {
+                Stmt::If { cond, body, else_body }
+            }
             / [Spanned { token: Token::Yield, .. }]
               value:expr(src) {
                 Stmt::Yield(value)
             }
             / e:expr(src) {
                 Stmt::Expr(e)
+            }
+
+        rule else_body(src: &str) -> Vec<Stmt> =
+            [Spanned { token: Token::Else, .. }]
+            [Spanned { token: Token::LBrace, .. }]
+            body:stmt(src)*
+            [Spanned { token: Token::RBrace, .. }] {
+                body
             }
 
         rule dp_expr(src: &str) -> Expr =
@@ -296,10 +396,14 @@ peg::parser! {
 
         rule node_def(src: &str) -> NodeDef =
             [Spanned { token: Token::Node, .. }]
+            name:node_name_opt(src)
             [Spanned { token: Token::LBrace, .. }]
             fields:node_field(src)*
             [Spanned { token: Token::RBrace, .. }] {?
-                let mut node = NodeDef::default();
+                let mut node = NodeDef {
+                    name,
+                    ..NodeDef::default()
+                };
                 for field in fields {
                     match field {
                         NodeField::Key(ty) => node.key = Some(ty),
@@ -310,6 +414,20 @@ peg::parser! {
                 }
                 Ok(node)
             }
+
+        rule node_name_opt(src: &str) -> Option<String> =
+            [Spanned { token: Token::LParen, .. }]
+            [Spanned { token: Token::Ident, start, end }]
+            [Spanned { token: Token::Eq, .. }]
+            [Spanned { token: Token::String, start: s0, end: e0 }]
+            [Spanned { token: Token::RParen, .. }] {?
+                let attr = &src[start..end];
+                if attr != "name" {
+                    return Err("expected name = '...'");
+                }
+                unescape_string(&src[s0..e0]).map(Some)
+            }
+            / { None }
 
         rule node_field(src: &str) -> NodeField =
             name:ident(src)

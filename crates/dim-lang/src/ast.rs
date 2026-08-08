@@ -21,10 +21,18 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Lit(String),
+    Str(String),
+    NegInf,
     Name(String),
     Field { base: Box<Expr>, field: String },
     Index { base: Box<Expr>, index: Box<Expr> },
     Call { name: String, args: Vec<Expr> },
+    MethodCall {
+        base: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
+    RecordLit(Vec<(String, Expr)>),
     Lambda { params: Vec<String>, body: Box<Expr> },
     Block(Vec<Stmt>),
     Dp(DpBlock),
@@ -43,13 +51,19 @@ pub enum Stmt {
         iter: Expr,
         body: Vec<Stmt>,
     },
+    If {
+        cond: Expr,
+        body: Vec<Stmt>,
+        else_body: Option<Vec<Stmt>>,
+    },
     Yield(Expr),
     Expr(Expr),
 }
 
-/// One `node { ... }` — fixed fields matching the DP surface (absent = None).
+/// One `node { ... }` or `node(name = '...') { ... }`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NodeDef {
+    pub name: Option<String>,
     pub key: Option<Type>,
     pub payload: Option<Expr>,
     pub next: Option<Expr>,
