@@ -66,6 +66,23 @@ fn eval<P: Dp>(
     result
 }
 
+/// Per-node debug values from a `between` sweep.
+#[derive(Debug, Clone)]
+pub struct BetweenNodeTrace<K, V> {
+    pub key: K,
+    pub payload: V,
+    pub incoming: V,
+    pub dp: V,
+}
+
+/// Full `between` result including the filtered subgraph and per-node DP.
+#[derive(Debug, Clone)]
+pub struct BetweenTrace<K, V> {
+    pub result: V,
+    pub nodes: Vec<BetweenNodeTrace<K, V>>,
+    pub edges: Vec<(K, K)>,
+}
+
 /// Forward topological DP for paths from `begin` to `end`.
 ///
 /// For each node `v` on some `begin → … → end` path:
@@ -78,11 +95,29 @@ pub fn solve_between<K, V>(
     payload: &HashMap<K, V>,
     begin: &K,
     end: &K,
+    add: impl FnMut(V, V) -> V,
+    mul: impl FnMut(V, V) -> V,
+    unit: V,
+    zero: V,
+) -> V
+where
+    K: Clone + Eq + Hash,
+    V: Clone,
+{
+    solve_between_traced(edges, payload, begin, end, add, mul, unit, zero).result
+}
+
+/// Like [`solve_between`], but also returns per-node incoming/payload/dp and subgraph edges.
+pub fn solve_between_traced<K, V>(
+    edges: &HashMap<K, Vec<K>>,
+    payload: &HashMap<K, V>,
+    begin: &K,
+    end: &K,
     mut add: impl FnMut(V, V) -> V,
     mut mul: impl FnMut(V, V) -> V,
     unit: V,
     zero: V,
-) -> V
+) -> BetweenTrace<K, V>
 where
     K: Clone + Eq + Hash,
     V: Clone,
@@ -99,7 +134,11 @@ where
     let nodes: HashSet<K> = from_begin.intersection(&to_end).cloned().collect();
 
     if !nodes.contains(end) {
-        return zero;
+        return BetweenTrace {
+            result: zero,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
     }
 
     let mut indegree: HashMap<K, usize> = HashMap::new();
@@ -135,6 +174,7 @@ where
     }
 
     let mut dp: HashMap<K, V> = HashMap::new();
+    let mut node_traces = Vec::with_capacity(order.len());
     for v in &order {
         let incoming = if v == begin {
             unit.clone()
@@ -153,10 +193,29 @@ where
             .get(v)
             .cloned()
             .unwrap_or_else(|| zero.clone());
-        dp.insert(v.clone(), mul(p, incoming));
+        let out = mul(p.clone(), incoming.clone());
+        dp.insert(v.clone(), out.clone());
+        node_traces.push(BetweenNodeTrace {
+            key: v.clone(),
+            payload: p,
+            incoming,
+            dp: out,
+        });
     }
 
-    dp.get(end).cloned().unwrap_or(zero)
+    let mut edge_list = Vec::new();
+    for from in &nodes {
+        for to in forward.get(from).into_iter().flatten() {
+            edge_list.push((from.clone(), to.clone()));
+        }
+    }
+
+    let result = dp.get(end).cloned().unwrap_or(zero);
+    BetweenTrace {
+        result,
+        nodes: node_traces,
+        edges: edge_list,
+    }
 }
 
 fn reachable<K: Clone + Eq + Hash>(start: &K, edges: &HashMap<K, Vec<K>>) -> HashSet<K> {
